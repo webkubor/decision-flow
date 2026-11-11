@@ -62,7 +62,22 @@
 - 11 个工具：`search`、`rule`、`flow`、`context`、`cli_query`、`model_available`、`skill_list`、`skill_show`、`plugin_list`、`cli_discover`、`cli_identities`
 - `search` 工具真实调用（stdio MCP `tools/call`）→ 返回真实命中 `docs/dev-repos-guide.md`、`docs/rules/image-provenance.md`
 
-**生产未受影响**：`~/.hermes/memories/*.md` md5 与字节数校验前后一致（MEMORY 4680B / USER 2998B）。
+**生产未受影响**：`~/.hermes/memories/*.md` md5 与字节数校验前后一致（MEMORY 4680B / USER 2998B）——该结论适用于**隔离验证阶段**。
+
+### 生产落地（owner 拍板「优化记忆结构并打通 cs」后执行）
+
+| 项 | 落地前 | 落地后 | 证据 |
+|---|---|---|---|
+| MEMORY.md | 2561/2200 **溢出** | **1918/2200 无溢出**，51 条原子条目（最长 85） | 日志 `exceeds its char limit` 告警最后一次 16:07:04（修复前），之后无 |
+| USER.md | 1342/1375，10 条长散文 | **1215/1375**，43 条原子条目（最长 56） | 召回 76%→100% |
+| cs MCP | 未接入 | `mcp_servers.cs` → stdio `cs mcp serve` | `hermes mcp test cs` → ✓ Connected(5019ms)、✓ Tools discovered: 11 |
+| 工具可见性 | — | `mcp__cs__search` / `mcp__cs__rule` / `mcp__cs__flow` / … 共 11 个 | `hermes -z` 实测列出全部 `mcp__cs__*` |
+| **E2E 真召回** | — | Hermes 实际调用 `mcp__cs__search` 返回真实路径 | `hermes -z` 实测返回 `docs/dev-repos-guide.md`、`docs/rules/image-provenance.md`（与裸 MCP 调用一致） |
+
+回滚点：`~/.hermes/memories/MEMORY.md.bak-20261111-161058`、`USER.md.bak-20261111-161058`、`~/.hermes/config.yaml.bak-mem-cs-161114`。
+gateway 重载后：`hermes status` → Model `group/mian-model-group`、Gateway ✓ running、飞书/微信双平台连接正常。
+
+**落地注意**：`hermes mcp add` 走交互式工具发现会挂起（隔离与生产均复现），改用直接写 `mcp_servers:` 三行 yaml 后立即生效且保留既有 `magpie` 条目——**改配置前先备份，YAML 写完必须验证 `hermes mcp list` 与 `hermes mcp test`**。
 
 ## R 复盘
 
