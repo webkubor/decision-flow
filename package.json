@@ -1,0 +1,12 @@
+{
+  "name": "decision-flow",
+  "version": "1.0.0",
+  "private": true,
+  "description": "选型决策闭环 Flow 1.0：可证伪假设 + 固定字段复盘 + 跨轮迭代",
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "check": "node scripts/check-record.mjs records/*.md"
+  }
+}
