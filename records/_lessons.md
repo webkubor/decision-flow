@@ -8,3 +8,5 @@
 <!-- 记录从此处开始追加 ↓ -->
 
 - [2026-11-11] Flow 1.0 建立：五步循环（S/H/M/P/R）+ P-1..P-7 固定字段 + 六条迭代规则（来源：README.md 首版）
+- [2026-11-11] 对「6 个月不写代码」的 owner，选记忆/依赖方案先看「安装几步、要不要账号/付费、上游还活不活」，再看召回；本地免费里「内建原子化」是最低摩擦解（来源：2026-11-11-hermes-memory-provider.md）
+- [2026-11-11] 被推翻：ByteRover 不是「免费且活跃维护」——已于 2026-10-15 从 Hermes core 移除转 standalone 且标 Unmaintained，其 install.sh 实测 404；「memory 超限只丢多余」也不是——实际整次 add 报错（来源：2026-11-11-hermes-memory-provider.md）
