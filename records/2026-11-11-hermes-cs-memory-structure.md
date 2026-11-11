@@ -69,7 +69,7 @@
 | 项 | 落地前 | 落地后 | 证据 |
 |---|---|---|---|
 | MEMORY.md | 2561/2200 **溢出** | **1918/2200 无溢出**，51 条原子条目（最长 85） | 日志 `exceeds its char limit` 告警最后一次 16:07:04（修复前），之后无 |
-| USER.md | 1342/1375，10 条长散文 | **1215/1375**，43 条原子条目（最长 56） | 召回 76%→100% |
+| USER.md | 1342/1375，10 条长散文 | **1215/1375**，43 条原子条目（最长 56） | 关键词匹配召回 76%→100%（见下方口径更正） |
 | cs MCP | 未接入 | `mcp_servers.cs` → stdio `cs mcp serve` | `hermes mcp test cs` → ✓ Connected(5019ms)、✓ Tools discovered: 11 |
 | 工具可见性 | — | `mcp__cs__search` / `mcp__cs__rule` / `mcp__cs__flow` / … 共 11 个 | `hermes -z` 实测列出全部 `mcp__cs__*` |
 | **E2E 真召回** | — | Hermes 实际调用 `mcp__cs__search` 返回真实路径 | `hermes -z` 实测返回 `docs/dev-repos-guide.md`、`docs/rules/image-provenance.md`（与裸 MCP 调用一致） |
@@ -78,6 +78,37 @@
 gateway 重载后：`hermes status` → Model `group/mian-model-group`、Gateway ✓ running、飞书/微信双平台连接正常。
 
 **落地注意**：`hermes mcp add` 走交互式工具发现会挂起（隔离与生产均复现），改用直接写 `mcp_servers:` 三行 yaml 后立即生效且保留既有 `magpie` 条目——**改配置前先备份，YAML 写完必须验证 `hermes mcp list` 与 `hermes mcp test`**。
+
+### 写回闭环（owner 授权项 1，2026-11-11）
+
+CS 侧 MCP 按设计**只读**（源码 `cmd/mcp.go`：MCP 是发现面，写操作走 `cs` 子命令形式），因此写回用 CS 既有 CLI，**不新增服务**。行为契约写入 `~/.hermes/SOUL.md`（原文件已备份）。
+
+| 环节 | 命令 | 实测结果 |
+|---|---|---|
+| 写前查重 | `cs retro search '唯一标记'` | 走全表拉取，**超时**（见性能缺陷）→ 改用 `limit=50&days=1` 小载荷直查，确认无同标记 |
+| 写入 | `cs retro --type 决策 --agent lunove '完整记录'` | `✅ 已记录[决策] → Supabase（唯一真源；本地不再存手写副本）` |
+| 写后回读 | `GET /train/retro-logs?limit=50&days=1` | HTTP 200 / 3.7s / 50 条，**同标记命中 1 条** |
+| 落库证据 | — | `id=retro_3fc958578f2167d7572b3dad0b52475b`、`2026-11-11 08:23:55`、`agent=lunove`、`type=决策`，正文含范围/日期/结论/依据/适用条件 |
+
+行为契约要点：写前用唯一标记查重；写后必须回读核对正文，**命令退出 0 不等于持久化成功**；失败时如实报告未同步，不重复写入；不冒用身份、不发通知、不含凭据与私人聊天原文。
+
+### 检索约束（owner 授权项 2）
+
+涉及项目规则、历史决策/复盘、项目当前状态时，先查对应 CS 真源（`cs rule` / `cs retro search` / `cs search` + 读正文）；查不到或接口不可用时明确说**未核实**，不得凭旧记忆冒充已查询。实测：新会话问 `agent-reporting-protocol`，Hermes 经 `mcp__cs__rule` 返回规则正文并标注依据与更新日期。
+
+### 口径更正与已知缺陷（必须一并读）
+
+1. **「召回 76%→100%」是关键词字符串匹配口径，不代表真实记忆效果提升**。真实效果验证目前只到：连接可用、检索返回真实结果、内建写入不再被拒。
+2. **「零新增依赖」不严谨**。stdio MCP 会启动 `cs` 子进程；准确说法是**不新增第三方服务、不新增账号、不新增付费**，且复用了本机已有的 cs。
+3. **CS `retro` 读取有既有性能缺陷**（非本方案引入）：`cmd/retro.go` 的 `fetchRetroLogs` 把 `limit` 写死 5000 拉全表，而 `pkg/httpclient` 客户端超时仅 30s。实测 `limit=200` 约 20s、`limit=500` 约 60s+、`limit=5000` 约 60s+ → `cs retro search/list` 必然 `context deadline exceeded`。`--days` 过滤无效，因为 limit 是写死的。**写入路径（POST）正常**，故写回可用、检索不可用。修法（属 CS 仓改动，需单独授权）：服务端/客户端加分页与关键字查询，或对 `limit` 加上限并在 `days` 生效。
+4. `cs retro` 写入后会附带 CS 自身的收尾检查（检查 CortexOS 仓有未推送提交），与写入结果无关，勿误判为写入失败。
+
+### 待 owner 拍板
+
+- CS `retro` 检索性能缺陷是否修（改动属 CS 仓，需授权后由 AI 实施）。
+- `fallback_model` 仍指向 Flash 系模型；cron「每日夜间扫尾(22:00)」硬编码 `MiniMax-M3.1-Flash`。
+- Hermes 上游领先本地 1873 commits，升级会改变 memory 插件行为，需单独评估。
+- 热会话不加载新 SOUL.md 变更（源码 `agent/prompt_refresh.py`），需 `/new` 或其提示刷新机制才生效。
 
 ## R 复盘
 
